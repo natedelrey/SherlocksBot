@@ -5,8 +5,8 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import re
-import json
 import openai
+import psycopg2
 
 # Load environment variables
 load_dotenv()
@@ -14,29 +14,36 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix=".", intents=intents)
 
-DATA_FILE = "sherlocksbot_data.json"
+openai.api_key = OPENAI_API_KEY
 
-def load_data():
-    try:
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-            return data.get("watchlists", {}), data.get("letterboxd", {})
-    except FileNotFoundError:
-        return {}, {}
+def get_db_connection():
+    return psycopg2.connect(DATABASE_URL)
 
-def save_data():
-    with open(DATA_FILE, "w") as f:
-        json.dump({
-            "watchlists": user_watchlists,
-            "letterboxd": letterboxd_profiles
-        }, f, indent=2)
+def ensure_tables():
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS watchlists (
+            user_id TEXT,
+            movie TEXT,
+            PRIMARY KEY (user_id, movie)
+        );
+        CREATE TABLE IF NOT EXISTS letterboxd_profiles (
+            user_id TEXT PRIMARY KEY,
+            link TEXT
+        );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
 
-user_watchlists, letterboxd_profiles = load_data()
+ensure_tables()
 
 @bot.event
 async def on_ready():
@@ -59,8 +66,6 @@ async def commands(ctx):
 @bot.command()
 async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
-    openai.api_key = OPENAI_API_KEY
-
     chat_response = openai.ChatCompletion.create(
         model="gpt-4",
         messages=[
@@ -73,15 +78,17 @@ async def movie(ctx, *, prompt):
 
 @bot.command()
 async def unlog(ctx, *, movie_name):
-    user_id = str(ctx.author.id)
-    watchlist = user_watchlists.get(user_id, [])
-    matches = [m for m in watchlist if movie_name.lower() in m.lower()]
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT movie FROM watchlists WHERE user_id = %s", (str(ctx.author.id),))
+    movies = [row[0] for row in cur.fetchall()]
+    matches = [m for m in movies if movie_name.lower() in m.lower()]
 
     if not matches:
         await ctx.send("❌ No matching movies found in your watchlist.")
     elif len(matches) == 1:
-        watchlist.remove(matches[0])
-        save_data()
+        cur.execute("DELETE FROM watchlists WHERE user_id = %s AND movie = %s", (str(ctx.author.id), matches[0]))
+        conn.commit()
         await ctx.send(f"🗑️ Removed **{matches[0]}** from your watchlist.")
     else:
         options = "\n".join([f"{i+1}. {m}" for i, m in enumerate(matches)])
@@ -93,17 +100,25 @@ async def unlog(ctx, *, movie_name):
         try:
             reply = await bot.wait_for("message", timeout=30.0, check=check)
             selected = matches[int(reply.content)-1]
-            watchlist.remove(selected)
-            save_data()
+            cur.execute("DELETE FROM watchlists WHERE user_id = %s AND movie = %s", (str(ctx.author.id), selected))
+            conn.commit()
             await ctx.send(f"🗑️ Removed **{selected}** from your watchlist.")
         except:
             await ctx.send("⌛ Timed out or invalid response.")
 
+    cur.close()
+    conn.close()
+
 @bot.command()
 async def watchlist(ctx, member: discord.Member = None):
     member = member or ctx.author
-    user_id = str(member.id)
-    movies = user_watchlists.get(user_id, [])
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT movie FROM watchlists WHERE user_id = %s", (str(member.id),))
+    movies = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+
     if not movies:
         await ctx.send("📭 No movies logged yet.")
     else:
@@ -112,41 +127,54 @@ async def watchlist(ctx, member: discord.Member = None):
 
 @bot.command()
 async def syncletterboxd(ctx, link):
-    user_id = str(ctx.author.id)
-    letterboxd_profiles[user_id] = link
-    save_data()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO letterboxd_profiles (user_id, link) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET link = EXCLUDED.link", (str(ctx.author.id), link))
+    conn.commit()
+    cur.close()
+    conn.close()
     await ctx.send(f"🔗 Linked your Letterboxd: {link}")
 
 @bot.command()
 async def importletterboxd(ctx):
-    user_id = str(ctx.author.id)
-    link = letterboxd_profiles.get(user_id)
-    if not link:
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT link FROM letterboxd_profiles WHERE user_id = %s", (str(ctx.author.id),))
+    row = cur.fetchone()
+    if not row:
         await ctx.send("❌ You haven’t linked your Letterboxd profile. Use `.syncletterboxd`.")
+        cur.close()
+        conn.close()
         return
 
     try:
+        link = row[0]
         username = re.findall(r"letterboxd\.com/([\w-]+)/?", link)[0]
         url = f"https://letterboxd.com/{username}/films/"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
         titles = [a["alt"] for a in soup.select("li.poster img")]
 
-        user_watchlists.setdefault(user_id, [])
         for title in titles:
-            if title not in user_watchlists[user_id]:
-                user_watchlists[user_id].append(title)
-        save_data()
+            cur.execute("INSERT INTO watchlists (user_id, movie) VALUES (%s, %s) ON CONFLICT DO NOTHING", (str(ctx.author.id), title))
+        conn.commit()
         await ctx.send(f"📥 Imported {len(titles)} movies from Letterboxd.")
     except:
         await ctx.send("❌ Failed to import from Letterboxd.")
 
+    cur.close()
+    conn.close()
+
 @bot.command()
 async def compare(ctx, member1: discord.Member, member2: discord.Member):
-    id1 = str(member1.id)
-    id2 = str(member2.id)
-    list1 = set(user_watchlists.get(id1, []))
-    list2 = set(user_watchlists.get(id2, []))
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT movie FROM watchlists WHERE user_id = %s", (str(member1.id),))
+    list1 = set(row[0] for row in cur.fetchall())
+    cur.execute("SELECT movie FROM watchlists WHERE user_id = %s", (str(member2.id),))
+    list2 = set(row[0] for row in cur.fetchall())
+    cur.close()
+    conn.close()
 
     if not list1 or not list2:
         await ctx.send("❌ One or both users have empty watchlists.")
@@ -157,89 +185,5 @@ async def compare(ctx, member1: discord.Member, member2: discord.Member):
     percent = (len(shared) / total) * 100 if total else 0
 
     await ctx.send(f"🎭 **{member1.display_name}** and **{member2.display_name}** have {len(shared)} movies in common.\nMatch: **{percent:.1f}%**\n\n🎞️ Shared Movies:\n" + "\n".join(shared))
-
-@bot.command()
-async def log(ctx, *, movie_name):
-    tmdb_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={movie_name}"
-    response = requests.get(tmdb_url)
-    data = response.json()
-
-    if not data['results']:
-        await ctx.send("❌ Movie not found.")
-        return
-
-    current_page = 0
-
-    async def show_options(page):
-        start = page * 4
-        results = data['results'][start:start + 4]
-        if not results:
-            await ctx.send("❌ No more results.")
-            return
-
-        embed = discord.Embed(title="🎥 Select a Movie to Log", description="React with 1️⃣ 2️⃣ 3️⃣ 4️⃣ to log. ⏪ ⏩ to scroll.")
-
-        for i, movie in enumerate(results):
-            title = movie['title']
-            year = movie.get('release_date', 'N/A')[:4] if movie.get('release_date') else 'N/A'
-            embed.add_field(name=f"{i+1})", value=f"{title} ({year})", inline=False)
-
-        msg = await ctx.send(embed=embed)
-
-        emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣"][:len(results)] + ["⏪", "⏩"]
-        for emoji in emojis:
-            await msg.add_reaction(emoji)
-
-        def reaction_check(reaction, user):
-            return user == ctx.author and reaction.message.id == msg.id and str(reaction.emoji) in emojis
-
-        try:
-            reaction, user = await bot.wait_for("reaction_add", timeout=30.0, check=reaction_check)
-            emoji = str(reaction.emoji)
-            await msg.delete()
-            if emoji == "⏩":
-                await show_options(page + 1)
-            elif emoji == "⏪" and page > 0:
-                await show_options(page - 1)
-            else:
-                index = emojis.index(emoji)
-                movie = results[index]
-                title = movie['title']
-                year = movie.get('release_date', 'N/A')[:4] if movie.get('release_date') else 'N/A'
-                user_id = str(ctx.author.id)
-                user_watchlists.setdefault(user_id, []).append(f"{title} ({year})")
-                save_data()
-                poster_url = movie.get('poster_path')
-                poster = f"https://image.tmdb.org/t/p/w500{poster_url}" if poster_url else None
-                await ctx.send(f"✅ Logged **{title} ({year})** to your watchlist!" + (f"\n{poster}" if poster else ""))
-
-        except:
-            await ctx.send("⌛ Timed out or invalid reaction.")
-
-    first_movie = data['results'][0]
-    title = first_movie['title']
-    year = first_movie.get('release_date', 'N/A')[:4] if first_movie.get('release_date') else 'N/A'
-    msg = await ctx.send(f"🎥 Did you mean **{title} ({year})**? React with ✅ to confirm or ❌ to see more options.")
-
-    await msg.add_reaction("✅")
-    await msg.add_reaction("❌")
-
-    def check(reaction, user):
-        return user == ctx.author and reaction.message.id == msg.id and str(reaction.emoji) in ["✅", "❌"]
-
-    try:
-        reaction, user = await bot.wait_for("reaction_add", timeout=30.0, check=check)
-        if str(reaction.emoji) == "✅":
-            user_id = str(ctx.author.id)
-            user_watchlists.setdefault(user_id, []).append(f"{title} ({year})")
-            save_data()
-            poster_url = first_movie.get('poster_path')
-            poster = f"https://image.tmdb.org/t/p/w500{poster_url}" if poster_url else None
-            await ctx.send(f"✅ Logged **{title} ({year})** to your watchlist!" + (f"\n{poster}" if poster else ""))
-        else:
-            await msg.delete()
-            await show_options(current_page)
-    except:
-        await ctx.send("⌛ Timed out waiting for reaction.")
 
 bot.run(DISCORD_TOKEN)
