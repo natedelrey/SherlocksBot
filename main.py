@@ -61,13 +61,13 @@ async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
     openai.api_key = OPENAI_API_KEY
 
-    chat_response = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a helpful movie expert."},
-            {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
-        ]
-    )
+chat_response = openai.ChatCompletion.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": "You are a helpful movie expert."},
+        {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
+    ]
+)
     reply = chat_response.choices[0].message.content
     await ctx.send(reply)
 
