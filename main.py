@@ -15,7 +15,9 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-client = OpenAI(api_key=OPENAI_API_KEY)
+import openai
+
+openai.api_key = OPENAI_API_KEY
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,13 +63,13 @@ async def commands(ctx):
 @bot.command()
 async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
-    response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {"role": "system", "content": "You are a helpful movie expert."},
-            {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
-        ]
-    )
+    response = openai.ChatCompletion.create(
+    model="gpt-4",
+    messages=[
+        {"role": "system", "content": "You are a helpful movie expert."},
+        {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
+    ]
+)
     reply = response.choices[0].message.content
     await ctx.send(reply)
 
