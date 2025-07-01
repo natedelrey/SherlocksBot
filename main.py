@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import re
 import json
-from openai import OpenAI  # ✅ use this instead of `import openai`
+import openai  # ✅ use this instead of `import openai`
 
 # Load environment variables
 load_dotenv()
@@ -59,9 +59,9 @@ async def commands(ctx):
 @bot.command()
 async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    openai.api_key = OPENAI_API_KEY
 
-    chat_response = client.chat.completions.create(
+    chat_response = openai.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful movie expert."},
