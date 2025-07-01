@@ -169,7 +169,8 @@ async def importletterboxd(ctx):
             conn.commit()
             await ctx.send(f"📥 Imported {len(titles)} movies from Letterboxd.")
     except Exception as e:
-        await ctx.send(f"❌ Failed to import from Letterboxd.\nError: `{e}`")
+    debug_html = response.text if 'response' in locals() else "No response"
+    await ctx.send(f"⚠️ Couldn't find movies. Dumping first 1000 characters of HTML:\n```{debug_html[:1000]}```\nError: {e}")
 
     cur.close()
     conn.close()
