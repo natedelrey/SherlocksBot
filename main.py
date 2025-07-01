@@ -150,7 +150,7 @@ async def importletterboxd(ctx):
     try:
         link = row[0]
         username = re.findall(r"letterboxd\\.com/([\\w-]+)/?", link)[0]
-        url = f"https://letterboxd.com/{username}/films/"
+        url = f"https://letterboxd.com/{username}/watchlist/"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
         titles = [a["alt"] for a in soup.select("li.poster img")]
