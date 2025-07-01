@@ -59,9 +59,27 @@ async def commands(ctx):
         "`.watchlist [@user]` – View your or someone else's logged movies.\n"
         "`.syncletterboxd [link]` – Link your Letterboxd profile.\n"
         "`.importletterboxd` – Import all movies from your Letterboxd watchlist.\n"
-        "`.compare @user1 @user2` – Compare two users' watchlists and show match %."
+        "`.compare @user1 @user2` – Compare two users' watchlists and show match %.\n"
+        "`.log [movie name]` – Add a movie to your list (includes poster + confirmation).\n"
+        "`.full_log` – See the raw database dump for debugging."
     )
     await ctx.send(description)
+
+@bot.command()
+async def full_log(ctx):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, movie FROM watchlists")
+    data = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    if not data:
+        await ctx.send("📭 Database is currently empty.")
+    else:
+        lines = [f"<@{user_id}>: {movie}" for user_id, movie in data]
+        msg = "\n".join(lines)
+        await ctx.send(f"📄 **Full Watchlist Log:**\n{msg[:1900]}")
 
 @bot.command()
 async def movie(ctx, *, prompt):
@@ -149,11 +167,11 @@ async def importletterboxd(ctx):
 
     try:
         link = row[0]
-        username = re.findall(r"letterboxd\.com/([\w-]+)/?", link)[0]
-        url = f"https://letterboxd.com/{username}/films/by/added/"  # this ensures it's watched films
+        username = re.findall(r"letterboxd\\.com/([\\w-]+)/?", link)[0]
+        url = f"https://letterboxd.com/{username}/films/by/added/"
 
         headers = {
-            "User-Agent": "Mozilla/5.0"  # Letterboxd blocks some bots without this
+            "User-Agent": "Mozilla/5.0"
         }
         response = requests.get(url, headers=headers)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -211,6 +229,7 @@ async def log(ctx, *, movie_name):
     first_movie = data['results'][0]
     title = first_movie['title']
     year = first_movie.get('release_date', 'N/A')[:4] if first_movie.get('release_date') else 'N/A'
+    poster_path = first_movie.get("poster_path")
 
     conn = get_db_connection()
     cur = conn.cursor()
@@ -219,6 +238,10 @@ async def log(ctx, *, movie_name):
     cur.close()
     conn.close()
 
-    await ctx.send(f"✅ Logged **{title} ({year})** to your watchlist!")
+    if poster_path:
+        img_url = f"https://image.tmdb.org/t/p/w500{poster_path}"
+        await ctx.send(f"🎬 **{title} ({year})**\n{img_url}")
+    else:
+        await ctx.send(f"✅ Logged **{title} ({year})** to your watchlist!")
 
 bot.run(DISCORD_TOKEN)
