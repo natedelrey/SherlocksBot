@@ -149,7 +149,7 @@ async def importletterboxd(ctx):
 
     try:
         link = row[0]
-        username = re.findall(r"letterboxd\.com/([\w-]+)/?", link)[0]
+        username = re.findall(r"letterboxd\\.com/([\\w-]+)/?", link)[0]
         url = f"https://letterboxd.com/{username}/films/"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
@@ -185,5 +185,28 @@ async def compare(ctx, member1: discord.Member, member2: discord.Member):
     percent = (len(shared) / total) * 100 if total else 0
 
     await ctx.send(f"🎭 **{member1.display_name}** and **{member2.display_name}** have {len(shared)} movies in common.\nMatch: **{percent:.1f}%**\n\n🎞️ Shared Movies:\n" + "\n".join(shared))
+
+@bot.command()
+async def log(ctx, *, movie_name):
+    tmdb_url = f"https://api.themoviedb.org/3/search/movie?api_key={TMDB_API_KEY}&query={movie_name}"
+    response = requests.get(tmdb_url)
+    data = response.json()
+
+    if not data['results']:
+        await ctx.send("❌ Movie not found.")
+        return
+
+    first_movie = data['results'][0]
+    title = first_movie['title']
+    year = first_movie.get('release_date', 'N/A')[:4] if first_movie.get('release_date') else 'N/A'
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO watchlists (user_id, movie) VALUES (%s, %s) ON CONFLICT DO NOTHING", (str(ctx.author.id), f"{title} ({year})"))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    await ctx.send(f"✅ Logged **{title} ({year})** to your watchlist!")
 
 bot.run(DISCORD_TOKEN)
