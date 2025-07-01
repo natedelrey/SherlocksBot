@@ -1,12 +1,12 @@
 import discord
 from discord.ext import commands
-from openai import OpenAI
 import os
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import re
 import json
+import openai
 
 # Load environment variables
 load_dotenv()
@@ -14,8 +14,6 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-
-import openai
 
 openai.api_key = OPENAI_API_KEY
 
@@ -64,12 +62,12 @@ async def commands(ctx):
 async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
     response = openai.ChatCompletion.create(
-    model="gpt-4",
-    messages=[
-        {"role": "system", "content": "You are a helpful movie expert."},
-        {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
-    ]
-)
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful movie expert."},
+            {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
+        ]
+    )
     reply = response.choices[0].message.content
     await ctx.send(reply)
 
@@ -129,7 +127,7 @@ async def importletterboxd(ctx):
 
     try:
         username = re.findall(r"letterboxd\.com/([\w-]+)/?", link)[0]
-        url = f"https://letterboxd.com/{username}/films/"  # change to /films/ for all
+        url = f"https://letterboxd.com/{username}/films/"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
         titles = [a["alt"] for a in soup.select("li.poster img")]
