@@ -167,6 +167,39 @@ async def log(ctx, *, movie_name):
         await ctx.send("⌛ Timed out.")
 
 @bot.command()
+async def unlog(ctx, *, movie_name):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT movie FROM watchlists WHERE user_id = %s", (str(ctx.author.id),))
+    movies = [row[0] for row in cur.fetchall()]
+    matches = [m for m in movies if movie_name.lower() in m.lower()]
+
+    if not matches:
+        await ctx.send("❌ No matching movies found in your watchlist.")
+    elif len(matches) == 1:
+        cur.execute("DELETE FROM watchlists WHERE user_id = %s AND movie = %s", (str(ctx.author.id), matches[0]))
+        conn.commit()
+        await ctx.send(f"🗑️ Removed **{matches[0]}** from your watchlist.")
+    else:
+        options = "\n".join([f"{i+1}. {m}" for i, m in enumerate(matches)])
+        await ctx.send(f"Multiple matches found:\n{options}\nReply with the number to remove.")
+
+        def check(msg):
+            return msg.author == ctx.author and msg.content.isdigit() and 1 <= int(msg.content) <= len(matches)
+
+        try:
+            reply = await bot.wait_for("message", timeout=30.0, check=check)
+            selected = matches[int(reply.content)-1]
+            cur.execute("DELETE FROM watchlists WHERE user_id = %s AND movie = %s", (str(ctx.author.id), selected))
+            conn.commit()
+            await ctx.send(f"🗑️ Removed **{selected}** from your watchlist.")
+        except:
+            await ctx.send("⌛ Timed out or invalid response.")
+
+    cur.close()
+    conn.close()
+
+@bot.command()
 async def watchlist(ctx, member: discord.Member = None):
     member = member or ctx.author
     conn = get_db_connection()
