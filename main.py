@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import re
 import json
-import openai
+from openai import OpenAI  # ✅ use this instead of `import openai`
 
 # Load environment variables
 load_dotenv()
@@ -14,8 +14,6 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-
-openai.api_key = OPENAI_API_KEY
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -61,14 +59,16 @@ async def commands(ctx):
 @bot.command()
 async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
-    response = openai.ChatCompletion.create(
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    chat_response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "You are a helpful movie expert."},
             {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
         ]
     )
-    reply = response.choices[0].message.content
+    reply = chat_response.choices[0].message.content
     await ctx.send(reply)
 
 @bot.command()
