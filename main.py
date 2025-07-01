@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import re
 import json
-import openai  # ✅ use this instead of `import openai`
+import openai
 
 # Load environment variables
 load_dotenv()
@@ -61,14 +61,14 @@ async def movie(ctx, *, prompt):
     await ctx.send("🧠 Using AI to find recommendations...\n⚠️ Keep in mind: GPT knowledge cutoff is September 2021.")
     openai.api_key = OPENAI_API_KEY
 
-chat_response = openai.ChatCompletion.create(
-    model="gpt-4",
-    messages=[
-        {"role": "system", "content": "You are a helpful movie expert."},
-        {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
-    ]
-)
-    reply = chat_response.choices[0].message.content
+    chat_response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[
+            {"role": "system", "content": "You are a helpful movie expert."},
+            {"role": "user", "content": f"Give me 5 movie recommendations based on this prompt: {prompt}. Include year."}
+        ]
+    )
+    reply = chat_response.choices[0]["message"]["content"]
     await ctx.send(reply)
 
 @bot.command()
@@ -236,7 +236,6 @@ async def log(ctx, *, movie_name):
             poster_url = first_movie.get('poster_path')
             poster = f"https://image.tmdb.org/t/p/w500{poster_url}" if poster_url else None
             await ctx.send(f"✅ Logged **{title} ({year})** to your watchlist!" + (f"\n{poster}" if poster else ""))
-
         else:
             await msg.delete()
             await show_options(current_page)
