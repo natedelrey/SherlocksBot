@@ -150,27 +150,18 @@ async def importletterboxd(ctx):
     try:
         link = row[0]
         username = re.findall(r"letterboxd\.com/([\w-]+)/?", link)[0]
-        url = f"https://letterboxd.com/{username}/films/by/date/"
+        url = f"https://letterboxd.com/{username}/films/"
         response = requests.get(url)
         soup = BeautifulSoup(response.text, "html.parser")
+        titles = [a["alt"] for a in soup.select("li.poster img")]
 
-        # Try to extract posters
-        posters = soup.select("li.poster img")
-        titles = [a["alt"] for a in posters if a.get("alt")]
-
-        # Fallback logging
-        if not titles:
-            with open("letterboxd_debug.html", "w", encoding="utf-8") as f:
-                f.write(response.text)
-            await ctx.send("⚠️ Couldn't find movies. Dumped HTML to `letterboxd_debug.html` for debugging.")
-        else:
-            for title in titles:
-                cur.execute("INSERT INTO watchlists (user_id, movie) VALUES (%s, %s) ON CONFLICT DO NOTHING", (str(ctx.author.id), title))
-            conn.commit()
-            await ctx.send(f"📥 Imported {len(titles)} movies from Letterboxd.")
+        for title in titles:
+            cur.execute("INSERT INTO watchlists (user_id, movie) VALUES (%s, %s) ON CONFLICT DO NOTHING", (str(ctx.author.id), title))
+        conn.commit()
+        await ctx.send(f"📥 Imported {len(titles)} movies from Letterboxd.")
     except Exception as e:
-    debug_html = response.text if 'response' in locals() else "No response"
-    await ctx.send(f"⚠️ Couldn't find movies. Dumping first 1000 characters of HTML:\n```{debug_html[:1000]}```\nError: {e}")
+        debug_html = response.text if 'response' in locals() else "No response"
+        await ctx.send(f"⚠️ Couldn't find movies. First 1000 chars of page:\n```{debug_html[:1000]}```\nError: {e}")
 
     cur.close()
     conn.close()
